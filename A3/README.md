@@ -121,10 +121,34 @@ on le teste
 
 
 ## 4 - Un Service Supplier KAFKA
-On ajoutons dans `PageEventHandler`
+Pour creer un supplier il se fait de creer une fonction qui retourn un objet de type supplier
+dans `PageEventHandler`
 ```java
-
+@Bean
+public Supplier<PageEvent> pageEventSupplier(){
+    return ()->{
+        return new PageEvent(
+                Math.random()>0.5?"P1":"P2",
+                Math.random()>0.5?"U1":"U2",
+                new Date(),
+                10+new Random().nextInt(10000)
+        );
+    };
+}
 ```
+puis on declare qu'il topic de supplier dans 'application.properties'
+```properties
+spring.cloud.stream.bindings.pageEventSupplier-out-0.destination=T3
+spring.cloud.function.definition=pageEventConsumer;pageEventSupplier
+```
+on le teste \
+![Test de suplier kafka via spring](screenShots/5.png) \
+la dure par defaut entre les messages est `1 second` mais on peut changer par la propriete suivant :
+```properties
+spring.cloud.stream.bindings.pageEventSupplier-out-0.producer.poller.fixed-delay=200
+```
+cette fonctionaliter est bien pour similuer le stream flow.
+
 ## 5 - Un Service de Data Analytics Real Time Stream Processing avec Kaflka Streams
 ## 6 - Une application Web qui permet d'afficher les résultats du Stream Data Analytics en temps réel
 
