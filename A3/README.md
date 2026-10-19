@@ -54,19 +54,77 @@ docker compose up
 puis 
 ```shell
 docker exec --interactive --tty glsid-kafka-broker kafka-console-consumer --bootstrap-server broker:9092 --topic T1
+docker exec --interactive --tty glsid-kafka-broker kafka-console-producer --bootstrap-server broker:9092 --topic T1
 ```
 on le teste :
 ![test de kafka producer and consumer](screenShots/2.png)
 
 ## 2 - Un Service Producer KAFKA via un Rest Controler
-on creer la class `controllers.PageEventController`
+on creer un record `events.PageEvent`
+```java
+public record PageEvent(String name, String user, Date date, long duration ) {
+}
+```
+et une class `controllers.PageEventController`
+```java
+@RestController
+public class PageEventController {
+    @Autowired
+    private StreamBridge streamBridge;
+    @Autowired
+    private InteractiveQueryService interactiveQueryService;
+    @GetMapping("/publish")
+    public PageEvent publish(String name, String topic){
+        PageEvent event= new PageEvent(
+                name,
+                Math.random()>0.5?"U1":"U2",
+                new Date(),10+new Random().nextInt(10000));
+        streamBridge.send(topic, event);
+        return event;
+    }
+}
+```
+Puis on configurer le port dans `application.properties`
+```properties
+server.port=8080
+```
+et on le teste
+![Test de producer kafka via rest controller](screenShots/3.png) \
+
+## 3 - Un Service Consumer KAFKA
+on creer notre propre kafka consumer baser sur spring. pour ca : \
+on creer `handlers.PageEventHandler` un spring component qui contient un `bean` qui permet
+de retourner un objet consumer.
+```java
+@Component
+public class PageEventHandler {
+
+    @Bean
+    public Consumer<PageEvent> pageEventConsumer(){
+        return (input) -> {
+            System.out.println("*******************");
+            System.out.println(input.toString());
+            System.out.println("*****************");
+        };
+    }
+}
+```
+`input` est de type PageEvent. c-a-d nous avons creer un consumer qui va etre creer au debut 
+de l'execution de l'application, et il va faire un subscribe vers une `TOPIC` qui on va specifier
+dans `application.properties`
+```properties
+spring.cloud.stream.bindings.pageEventConsumer-in-0.destination=T2
+spring.cloud.function.definition=pageEventConsumer
+```
+on le teste
+![Test de consumer kafka via spring](screenShots/4.png) \
+
+
+## 4 - Un Service Supplier KAFKA
+On ajoutons dans `PageEventHandler`
 ```java
 
 ```
-et `events.PageEvent`
-
-## 3 - Un Service Consumer KAFKA
-## 4 - Un Service Supplier KAFKA
 ## 5 - Un Service de Data Analytics Real Time Stream Processing avec Kaflka Streams
 ## 6 - Une application Web qui permet d'afficher les résultats du Stream Data Analytics en temps réel
 
