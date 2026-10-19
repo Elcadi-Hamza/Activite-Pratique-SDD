@@ -150,6 +150,94 @@ spring.cloud.stream.bindings.pageEventSupplier-out-0.producer.poller.fixed-delay
 cette fonctionaliter est bien pour similuer le stream flow.
 
 ## 5 - Un Service de Data Analytics Real Time Stream Processing avec Kaflka Streams
+pour creer un service de data analytics real time stream processing, on ajoutons un fonction
+`FUNCTION` qui a un input et un output dans `PageEventHandler`
+```java
+@Bean
+public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
+    return (input) ->
+            input.filter((k,v)->v.duration()>100)
+                    .map((k,v)->new KeyValue<>(v.name(), v.duration())); // maping the old key value to new key value where the key is name of the pageEvent and value is the duration of the pageEven
+    // and for the filter only the events with duration > 100
+}
+```
+puis on ajoutons la declaration dans `applicatio.properties`
+```properties
+spring.cloud.stream.bindings.kStreamFunction-in-0.destination=T3
+spring.cloud.stream.bindings.kStreamFunction-out-0.destination=T4
+```
+on le test avec un supplier dans T3 et un consumer dans T4, avec le commande
+```shell
+#supllier
+docker exec --interactive --tty glsid-kafka-broker kafka-console-consumer --bootstrap-server broker:9092 --topic T3
+#consumer
+docker exec --interactive --tty glsid-kafka-broker kafka-console-consumer --bootstrap-server broker:9092 --topic T4 --property print.key=true --property print.value=true --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer --property value.deserializer=org.apache.kafka.common.serialization.LongDeserializer
+```
+la raison on pas utiliser 
+```shell
+docker exec --interactive --tty glsid-kafka-broker kafka-console-producer --bootstrap-server broker:9092 --topic T4
+```
+car le flux Kafka produit des valeurs de type Long sérialisées en binaire, et qu’il faut les désérialiser correctement pour afficher des nombres lisibles, contrairement à la commande classique qui peut afficher des caractères illisibles. \
+on le tester
+![Test de stream kafka via spring](screenShots/6.png) \
+On ajoutans autre atributes dans la fonction `kStreamFunction` dans `PageEventHandler`
+```java
+@Bean
+public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
+    return (input) ->
+            input.filter((k,v)->v.duration()>100)
+                    .map((k,v)->new KeyValue<>(v.name(), v.duration()))
+                    .groupByKey(Grouped.with(Serdes.String(), Serdes.Long()))
+                    .count()
+                    .toStream();
+
+    // for the filter only the events with duration > 100
+    // maping the old key value to new key value where the key is name of the pageEvent and value is the duration of the pageEven
+    // for groupBy : it groupBy name and count for each name
+    // .toStream to return it to Kstream, because map let it Kstream but groupby make it Ktable, so you need to turn it to kstream
+
+}
+```
+on le teste \
+![Test de stream kafka via spring](screenShots/7.png) \
+Remarque : on attende 30 second pour avoir le resultas mais on peut chnange by ajout dans `application.properties`
+```properties
+spring.cloud.stream.kafka.streams.binder.configuration.commit.interval.ms=5000
+```
+c-a-d fair des calcule en interfal de supliers de 5 seconds (calculer le count pour 5 second) \
+on le teste \
+![Test de stream kafka via spring](screenShots/8.png) \
+on voir que le nombre augumente c'est pourquoi on ajoutons la proprieter `windowedBy` pour avoir le count de la dernier par exemple 5 seconde et pas accumuler. \
+```java
+ @Bean
+public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
+    return (input) ->
+            input.filter((k,v)->v.duration()>100)
+                    .map((k,v)->new KeyValue<>(v.name(), v.duration()))
+                    .groupByKey(Grouped.with(Serdes.String(), Serdes.Long()))
+                    .windowedBy(TimeWindows.ofSizeWithNoGrace(Duration.ofSeconds(5)))
+                    .count()
+                    .toStream()
+                    .map((k, v) -> new KeyValue<>(k.key(), v));
+
+    // for the filter only the events with duration > 100
+    // maping the old key value to new key value where the key is name of the pageEvent and value is the duration of the pageEven
+    // for groupBy : it groupBy name and count for each name
+    // .toStream to return it to Kstream, because map let it Kstream but groupby make it Ktable, so you need to turn it to kstream
+    // .windowed by une propreiter de fenetrage pour reseter la fonction chaque 5 seconds
+}
+```
+on le tester \
+![Test de stream kafka via spring](screenShots/9.png) \
+
+
+
+
+
+[//]: # (note : there is in kafka producer and consumer, in java cloud there is producer and consumer and supplier, supplier is just auto producer 
+that send to the topic every 1 second by default, and in spring cloud there is stream [Function...] thats act like consumer and producer after processing the data that consume
+in stream we use the long command)
+
 ## 6 - Une application Web qui permet d'afficher les résultats du Stream Data Analytics en temps réel
 
 
