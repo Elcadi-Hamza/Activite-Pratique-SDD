@@ -8,4 +8,5 @@ Fillier : GLSID-3
 
 ### [1. Activité Pratique N°1 - Implémentation d'un micro service avec spring boot](A1/README.md)
 ### [2. Activité Pratique N°2 - Architecture Micro-services avec Spring cloud](A2/README.md)
+### [3. Activité Pratique N°3 - Event Driven Architecture](A3/README.md)
 
