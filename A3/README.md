@@ -1,4 +1,4 @@
-# Rapport de l'Activité Pratique N°2 - Architecture Micro-services avec Spring Cloud
+# Rapport de l'Activité Pratique N°3 - Event Driven Architecture - Classroom
 
 **Référence :** https://www.youtube.com/watch?v=8uY7JE_X_Fw \
 **Réalisé par :** HAMZA ELCADI - GLSID3
