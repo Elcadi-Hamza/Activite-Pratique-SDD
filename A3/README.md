@@ -1,4 +1,4 @@
-# Rapport de l'Activité Pratique N°2 - Architecture Micro-services avec Spring cloud
+# Rapport de l'Activité Pratique N°2 - Architecture Micro-services avec Spring Cloud
 
 **Référence :** https://www.youtube.com/watch?v=8uY7JE_X_Fw \
 **Réalisé par :** HAMZA ELCADI - GLSID3
@@ -7,7 +7,7 @@
 
 ## 1 - Création du projet
 
-On Créer un projet java `kafka-spring-cloud-stream` :
+On crée un projet Java `kafka-spring-cloud-stream` :
 
 ![Création du projet](screenShots/1.png)
 
@@ -17,8 +17,24 @@ Avec les dépendances suivantes :
 - **Spring for Apache Kafka**
 - **Spring for Apache Kafka Streams**
 - **Cloud Stream** \
+## 2 - Utilisation de Kafka et Zookeeper
+Tout d'abord, on installe `Apache Kafka` : \
+![Apache Kafka](screenShots/11.png)
+Puis on installe `Apache Zookeeper` : \
+![Apache Zookeeper](screenShots/12.png) \
 
-Puis on creer un fichier `compose.yml` dans le root directory. \
+Puis on exécute les commandes suivantes : \
+```shell
+ bin\windows\zookeeper-server-start.bat config/zookeeper.properties
+ bin\windows\kafka-server-start.bat config/server.properties
+```
+Puis on lance le producer et le consumer Kafka :
+```shell
+bin\windows\kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic T1 --property print.key=true --property print.value=true --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer --property value.deserializer=org.apache.kafka.common.serialization.StringDeserializer
+bin\windows\kafka-console-producer.bat --broker-list localhost:9092 --topic T1
+```
+## 3 - Utilisation de Docker
+On crée un fichier `compose.yml` à la racine du projet. \
 ```yaml
 version: '3'
 services:
@@ -47,25 +63,25 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
 ```
-puis on demarer docker
+Puis on démarre Docker :
 ```shell
 docker compose up
 ```
-puis 
+Puis :
 ```shell
 docker exec --interactive --tty glsid-kafka-broker kafka-console-consumer --bootstrap-server broker:9092 --topic T1
 docker exec --interactive --tty glsid-kafka-broker kafka-console-producer --bootstrap-server broker:9092 --topic T1
 ```
-on le teste :
-![test de kafka producer and consumer](screenShots/2.png)
+On le teste :
+![Test du producer et du consumer Kafka](screenShots/2.png)
 
-## 2 - Un Service Producer KAFKA via un Rest Controler
-on creer un record `events.PageEvent`
+## 4 - Un service Producer Kafka via un Rest Controller
+On crée un record `events.PageEvent` :
 ```java
 public record PageEvent(String name, String user, Date date, long duration ) {
 }
 ```
-et une class `controllers.PageEventController`
+Et une classe `controllers.PageEventController` :
 ```java
 @RestController
 public class PageEventController {
@@ -84,17 +100,17 @@ public class PageEventController {
     }
 }
 ```
-Puis on configurer le port dans `application.properties`
+Puis on configure le port dans `application.properties` :
 ```properties
 server.port=8080
 ```
-et on le teste
-![Test de producer kafka via rest controller](screenShots/3.png) \
+Et on le teste :
+![Test du producer Kafka via un rest controller](screenShots/3.png) \
 
-## 3 - Un Service Consumer KAFKA
-on creer notre propre kafka consumer baser sur spring. pour ca : \
-on creer `handlers.PageEventHandler` un spring component qui contient un `bean` qui permet
-de retourner un objet consumer.
+## 5 - Un service Consumer Kafka
+On crée notre propre consumer Kafka basé sur Spring. Pour cela : \
+on crée `handlers.PageEventHandler`, un composant Spring qui contient un `bean` permettant
+de retourner un objet `Consumer`.
 ```java
 @Component
 public class PageEventHandler {
@@ -109,20 +125,20 @@ public class PageEventHandler {
     }
 }
 ```
-`input` est de type PageEvent. c-a-d nous avons creer un consumer qui va etre creer au debut 
-de l'execution de l'application, et il va faire un subscribe vers une `TOPIC` qui on va specifier
-dans `application.properties`
+`input` est de type `PageEvent`. C'est-à-dire que nous avons créé un consumer qui sera instancié au début
+de l'exécution de l'application, et qui s'abonnera à un `topic` que l'on spécifie
+dans `application.properties` :
 ```properties
 spring.cloud.stream.bindings.pageEventConsumer-in-0.destination=T2
 spring.cloud.function.definition=pageEventConsumer
 ```
-on le teste
-![Test de consumer kafka via spring](screenShots/4.png) \
+On le teste :
+![Test du consumer Kafka via Spring](screenShots/4.png) \
 
 
-## 4 - Un Service Supplier KAFKA
-Pour creer un supplier il se fait de creer une fonction qui retourn un objet de type supplier
-dans `PageEventHandler`
+## 6 - Un service Supplier Kafka
+Pour créer un supplier, il suffit de créer une fonction qui retourne un objet de type `Supplier`,
+dans `PageEventHandler` :
 ```java
 @Bean
 public Supplier<PageEvent> pageEventSupplier(){
@@ -136,51 +152,51 @@ public Supplier<PageEvent> pageEventSupplier(){
     };
 }
 ```
-puis on declare qu'il topic de supplier dans 'application.properties'
+Puis on déclare le topic du supplier dans `application.properties` :
 ```properties
 spring.cloud.stream.bindings.pageEventSupplier-out-0.destination=T3
 spring.cloud.function.definition=pageEventConsumer;pageEventSupplier
 ```
-on le teste \
-![Test de suplier kafka via spring](screenShots/5.png) \
-la dure par defaut entre les messages est `1 second` mais on peut changer par la propriete suivant :
+On le teste : \
+![Test du supplier Kafka via Spring](screenShots/5.png) \
+La durée par défaut entre deux messages est de `1 seconde`, mais on peut la modifier avec la propriété suivante :
 ```properties
 spring.cloud.stream.bindings.pageEventSupplier-out-0.producer.poller.fixed-delay=200
 ```
-cette fonctionaliter est bien pour similuer le stream flow.
+Cette fonctionnalité est utile pour simuler un flux de données (stream).
 
-## 5 - Un Service de Data Analytics Real Time Stream Processing avec Kaflka Streams
-pour creer un service de data analytics real time stream processing, on ajoutons un fonction
-`FUNCTION` qui a un input et un output dans `PageEventHandler`
+## 7 - Un service de Data Analytics en temps réel (Stream Processing) avec Kafka Streams
+Pour créer un service de data analytics en temps réel, on ajoute une fonction
+`Function` qui a une entrée et une sortie dans `PageEventHandler` :
 ```java
 @Bean
 public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
     return (input) ->
             input.filter((k,v)->v.duration()>100)
-                    .map((k,v)->new KeyValue<>(v.name(), v.duration())); // maping the old key value to new key value where the key is name of the pageEvent and value is the duration of the pageEven
-    // and for the filter only the events with duration > 100
+                    .map((k,v)->new KeyValue<>(v.name(), v.duration())); // mapping: the old key-value becomes a new key-value where the key is the name of the PageEvent and the value is its duration
+    // the filter keeps only the events with duration > 100
 }
 ```
-puis on ajoutons la declaration dans `applicatio.properties`
+Puis on ajoute la déclaration dans `application.properties` :
 ```properties
 spring.cloud.stream.bindings.kStreamFunction-in-0.destination=T3
 spring.cloud.stream.bindings.kStreamFunction-out-0.destination=T4
 ```
-on le test avec un supplier dans T3 et un consumer dans T4, avec le commande
+On le teste avec un supplier dans T3 et un consumer dans T4, avec les commandes suivantes :
 ```shell
-#supllier
+# supplier
 docker exec --interactive --tty glsid-kafka-broker kafka-console-consumer --bootstrap-server broker:9092 --topic T3
-#consumer
+# consumer
 docker exec --interactive --tty glsid-kafka-broker kafka-console-consumer --bootstrap-server broker:9092 --topic T4 --property print.key=true --property print.value=true --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer --property value.deserializer=org.apache.kafka.common.serialization.LongDeserializer
 ```
-la raison on pas utiliser 
+La raison pour laquelle on n'utilise pas la commande suivante :
 ```shell
 docker exec --interactive --tty glsid-kafka-broker kafka-console-producer --bootstrap-server broker:9092 --topic T4
 ```
-car le flux Kafka produit des valeurs de type Long sérialisées en binaire, et qu’il faut les désérialiser correctement pour afficher des nombres lisibles, contrairement à la commande classique qui peut afficher des caractères illisibles. \
-on le tester
-![Test de stream kafka via spring](screenShots/6.png) \
-On ajoutans autre atributes dans la fonction `kStreamFunction` dans `PageEventHandler`
+est que le flux Kafka produit des valeurs de type Long sérialisées en binaire, qu’il faut désérialiser correctement pour afficher des nombres lisibles, contrairement à la commande classique qui peut afficher des caractères illisibles. \
+On le teste :
+![Test du stream Kafka via Spring](screenShots/6.png) \
+On ajoute d'autres opérations dans la fonction `kStreamFunction` de `PageEventHandler` :
 ```java
 @Bean
 public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
@@ -191,23 +207,23 @@ public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFuncti
                     .count()
                     .toStream();
 
-    // for the filter only the events with duration > 100
-    // maping the old key value to new key value where the key is name of the pageEvent and value is the duration of the pageEven
-    // for groupBy : it groupBy name and count for each name
-    // .toStream to return it to Kstream, because map let it Kstream but groupby make it Ktable, so you need to turn it to kstream
+    // the filter keeps only the events with duration > 100
+    // mapping: the old key-value becomes a new key-value where the key is the name of the PageEvent and the value is its duration
+    // groupBy: groups by name and counts for each name
+    // .toStream: returns to a KStream, because map leaves a KStream but groupBy makes it a KTable, so it has to be turned back into a KStream
 
 }
 ```
-on le teste \
-![Test de stream kafka via spring](screenShots/7.png) \
-Remarque : on attende 30 second pour avoir le resultas mais on peut chnange by ajout dans `application.properties`
+On le teste : \
+![Test du stream Kafka via Spring](screenShots/7.png) \
+Remarque : on attend 30 secondes pour obtenir le résultat, mais on peut modifier ce délai en ajoutant dans `application.properties` :
 ```properties
 spring.cloud.stream.kafka.streams.binder.configuration.commit.interval.ms=5000
 ```
-c-a-d fair des calcule en interfal de supliers de 5 seconds (calculer le count pour 5 second) \
-on le teste \
-![Test de stream kafka via spring](screenShots/8.png) \
-on voir que le nombre augumente c'est pourquoi on ajoutons la proprieter `windowedBy` pour avoir le count de la dernier par exemple 5 seconde et pas accumuler. \
+C'est-à-dire que les calculs se font sur un intervalle de 5 secondes (le count est calculé sur 5 secondes). \
+On le teste : \
+![Test du stream Kafka via Spring](screenShots/8.png) \
+On voit que le nombre augmente continuellement. C'est pourquoi on ajoute `windowedBy`, pour obtenir le count des 5 dernières secondes, par exemple, sans accumulation. \
 ```java
  @Bean
 public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
@@ -220,15 +236,15 @@ public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFuncti
                     .toStream()
                     .map((k, v) -> new KeyValue<>(k.key(), v));
 
-    // for the filter only the events with duration > 100
-    // maping the old key value to new key value where the key is name of the pageEvent and value is the duration of the pageEven
-    // for groupBy : it groupBy name and count for each name
-    // .toStream to return it to Kstream, because map let it Kstream but groupby make it Ktable, so you need to turn it to kstream
-    // .windowed by une propreiter de fenetrage pour reseter la fonction chaque 5 seconds
+    // the filter keeps only the events with duration > 100
+    // mapping: the old key-value becomes a new key-value where the key is the name of the PageEvent and the value is its duration
+    // groupBy: groups by name and counts for each name
+    // .toStream: returns to a KStream, because map leaves a KStream but groupBy makes it a KTable, so it has to be turned back into a KStream
+    // .windowedBy : propriété de fenêtrage pour réinitialiser le calcul toutes les 5 secondes
 }
 ```
-on le tester \
-![Test de stream kafka via spring](screenShots/9.png) \
+On le teste : \
+![Test du stream Kafka via Spring](screenShots/9.png) \
 
 
 
@@ -238,19 +254,87 @@ on le tester \
 that send to the topic every 1 second by default, and in spring cloud there is stream [Function...] thats act like consumer and producer after processing the data that consume
 in stream we use the long command)
 
-## 6 - Une application Web qui permet d'afficher les résultats du Stream Data Analytics en temps réel
+## 8 - Une application web qui affiche en temps réel les résultats du Stream Data Analytics
+On modifie la fonction `kStreamFunction` en ajoutant un store `Materialized` :
+```java
+@Bean
+public Function<KStream<String, PageEvent>, KStream<String, Long>> kStreamFunction() {
+    return (input) ->
+            input.filter((k,v)->v.duration()>100)
+                    .map((k,v)->new KeyValue<>(v.name(), v.duration()))
+                    .groupByKey(Grouped.with(Serdes.String(), Serdes.Long()))
+                    .windowedBy(TimeWindows.ofSizeWithNoGrace(Duration.ofSeconds(5)))
+                    .count(Materialized.as("count-store"))
+                    .toStream()
+                    .map((k, v) -> new KeyValue<>(k.key(), v));
+}
+```
+Et on ajoute la méthode `analytics` dans le contrôleur `PageEventController` :
+```java
+@Autowired
+private InteractiveQueryService interactiveQueryService;
+@GetMapping(path = "/analytics",produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<Map<String, Long>> analytics(){
+    return Flux.interval(Duration.ofSeconds(1))
+            .map(sequence->{
+                Map<String,Long> stringLongMap=new HashMap<>();
+                ReadOnlyWindowStore<String, Long> windowStore = interactiveQueryService.getQueryableStore("count-store", QueryableStoreTypes.windowStore());
+                Instant now=Instant.now();
+                Instant from=now.minusMillis(5000);
+                KeyValueIterator<Windowed<String>, Long> fetchAll = windowStore.fetchAll(from, now);
+                //WindowStoreIterator<Long> fetchAll = windowStore.fetch(page, from, now);
+                while (fetchAll.hasNext()){
+                    KeyValue<Windowed<String>, Long> next = fetchAll.next();
+                    stringLongMap.put(next.key.key(),next.value);
+                }
+                return stringLongMap;
+            });
+}
+```
+Puis on ajoute une page `index.html` dans le dossier `resources/static` :
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Analytics</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/smoothie/1.34.0/smoothie.min.js"></script>
+</head>
+<body>
 
+<canvas id="chart2" width="1400" height="700"></canvas>
+<script>
+    var index=-1;
+    randomColor = function() {
+        ++index;
+        if (index >= colors.length) index = 0; return colors[index];
+    }
+    var pages=["P1","P2"];
+    var colors=[
+        { sroke : 'rgba(0, 255, 0, 1)', fill : 'rgba(0, 255, 0, 0.2)' },
+        { sroke : 'rgba(255, 0, 0, 1)', fill : 'rgba(255, 0, 0, 0.2)'}
+    ];
+    var courbe = [];
+    var smoothieChart = new SmoothieChart({tooltip: true});
+    smoothieChart.streamTo(document.getElementById("chart2"), 500);
+    pages.forEach(function(v){
+        courbe[v]=new TimeSeries();
+        col = randomColor();
+        smoothieChart.addTimeSeries(courbe[v], {strokeStyle : col.sroke, fillStyle : col.fill, lineWidth : 2
+        });
+    });
+    var stockEventSource= new EventSource("/analytics");
+    stockEventSource.addEventListener("message", function (event) {
+        pages.forEach(function(v){
+            val=JSON.parse(event.data)[v];
+            courbe[v].append(new Date().getTime(),val);
+        });
+    });
 
-## 3 - Création de micro-service customer-service qui permet de gérer les client
-On Créer le micro service `customer-service` : \
-![Création du micro service customer-service](screenShots/2.png) \
-
-Avec les dépendances suivantes :
-- **Spring Web**
-- **Spring Data JPA**
-- **H2 Database**
-- **Lombok**
-- **Rest Repository**
-- **Eureka Discovery Client**
-- **Config Client**
-- **Spring Boot Actuator** //pour le monitoring du micro service \
+</script>
+</body>
+</html>
+</body>
+</html>
+```
+![http://localhost:8080/](screenShots/10.png) \
