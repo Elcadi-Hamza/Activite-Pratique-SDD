@@ -62,6 +62,16 @@ la class `AccountCommandController`
 ```java
 
 ```
+et une sous package `dto` et la class `AddNewAccountRequestDto`
+```java
+public record AddNewAccountRequestDto(double initialBalance, String currency) {
+}
+```
+et une sous package `commands` et la class `AddAccountCommand`
+```java
+
+```
+
 
 ## 3 - Implémentation des Événements
 
