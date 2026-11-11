@@ -105,6 +105,7 @@ server.port=8066
 ![documentation swager](screenShots/1.png) \
 ![l'error de No handler was subscribed for command commands.commands.AddAccountCommand.](screenShots/2.png) \
 
+## 3 - Implémentation des Événements
 ### Creation d'aggrega
 on creer la package `commands.aggregates` dans lequel la class `AccountAggregate`
 ```java
@@ -168,11 +169,67 @@ spring.datasource.url=jdbc:h2:mem:accounts-db
 spring.h2.console.enabled=true
 ```
 ![the event in h2 console](screenShots/4.png) \
+on ajoutons les proprietes suivants
+```properties
+axon.serializer.events=jackson
+axon.serializer.messages=xstream
+axon.serializer.general=jackson
+```
 
 
-## 3 - Implémentation des Événements
 
 ## 4 - Persistance avec PostgreSQL et Docker Compose
+on demarer postgress utilisant docker \
+on creer un fichier `composer.yaml`
+```yaml
+services:
+  postgres:
+    image: 'postgres:latest'
+    environment:
+      - 'POSTGRES_DB=accounts_db'
+      - 'POSTGRES_PASSWORD=1234'
+      - 'POSTGRES_USER=admin'
+    volumes:
+      - accounts_data:/var/lib/postgresql
+    ports:
+      - '5432:5432'
+    networks:
+      - accounts-net
+  pgadmin4:
+    image: dpage/pgadmin4
+    restart: always
+    ports:
+      - "8088:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: hamza@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: azer
+    volumes:
+      - accounts_pgadmin_data:/var/lib/pgadmin
+    networks:
+      - accounts-net
+volumes:
+  accounts_data:
+  accounts_pgadmin_data:
+
+networks:
+  accounts-net:
+    driver: bridge
+```
+puis run la commande 
+```shell
+docker compose up
+```
+![docker compose up](screenShots/5.png) \
+
+puis on ajoutons les proprietes suivants :
+```properties
+spring.jpa.properties.hibernate.dialect = org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.hibernate.ddl-auto=create
+spring.jpa.hibernate.show-sql=true
+spring.datasource.url= ${DB_URL:jdbc:postgresql://localhost:5432/accounts_db}
+spring.datasource.username=admin
+spring.datasource.password=1234
+```
 
 ## 5 - Développements du Côté Lecture
 On creer le package `query` (ecriture)
