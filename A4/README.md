@@ -38,7 +38,7 @@ on ajoutons la dependances `AXON` framework :
 <dependency>
     <groupId>org.axonframework</groupId>
     <artifactId>axon-spring-boot-starter</artifactId>
-    <version>4.6.1</version>
+    <version>4.13.2</version>
     <exclusions>
         <exclusion>
             <groupId>org.axonframework</groupId>
@@ -60,7 +60,27 @@ On ajoutons la dependance de documentation
 On creer le package `commands` (ecrire) et un sous package `controllers`. \
 la class `AccountCommandController`
 ```java
+@RestController
+@RequestMapping("/commands/accounts")
+@AllArgsConstructor
+public class AccountCommandController {
+    private CommandGateway commandGateway;
+    @PostMapping("/add")
+    public CompletableFuture<String> addNewAccount(@RequestBody AddNewAccountRequestDto requestDto) {
+        //dispatching //<String> car targetAgrregate is a sting
+        CompletableFuture<String> response = commandGateway.send(new AddAccountCommand(
+                UUID.randomUUID().toString(),
+                requestDto.initialBalance(),
+                requestDto.currency()
+        ));
+        return response;
+    }
+    @ExceptionHandler(Exception.class)
+    public String exceptionHandler(Exception exception) {
+        return exception.getMessage();
+    }
 
+}
 ```
 et une sous package `dto` et la class `AddNewAccountRequestDto`
 ```java
@@ -69,8 +89,85 @@ public record AddNewAccountRequestDto(double initialBalance, String currency) {
 ```
 et une sous package `commands` et la class `AddAccountCommand`
 ```java
-
+@Getter @AllArgsConstructor
+public class AddAccountCommand {
+    @TargetAggregateIdentifier
+    private String id;
+    private double initialBalance;
+    private String currency;
+}
 ```
+et dans `application.properties`
+```properties
+spring.application.name=account-service-axon
+server.port=8066
+```
+![documentation swager](screenShots/1.png) \
+![l'error de No handler was subscribed for command commands.commands.AddAccountCommand.](screenShots/2.png) \
+
+### Creation d'aggrega
+on creer la package `commands.aggregates` dans lequel la class `AccountAggregate`
+```java
+@Aggregate
+@Slf4j
+public class AccountAggregate {
+    private String accountId;
+    private double balance;
+    private AccountStatus status;
+
+    //pour AXON
+    public AccountAggregate(){}
+
+    //les regles metiers / fonction de decision
+    @CommandHandler
+    public AccountAggregate(AddAccountCommand command){
+        log.info("##################### AddAccountCommand recived ############################");
+        if(command.getInitialBalance()<=0) throw new IllegalArgumentException("Balance must be positive");
+        //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+        AggregateLifecycle.apply(new AccountCreatedEvent(
+                command.getId(),
+                command.getInitialBalance(),
+                AccountStatus.CREATED,
+                command.getCurrency()
+        ));
+    }
+
+    @EventSourcingHandler
+    public void on(AccountCreatedEvent event){
+        log.info("##################### AccountCreatedEvent occured ############################");
+        this.accountId = event.getAccountId();
+        this.balance = event.getInitialBalance();
+        this.status = event.getStatus();
+    }
+}
+```
+Note creeer la class `enums.AccountStatus`
+```java
+public enum AccountStatus {
+    CREATED, SUSPENDED, ACTIVATED, BLOCKED
+}
+```
+et une package `events` la class `AccountCreatedEvent`
+```java
+@Getter @AllArgsConstructor
+public class AccountCreatedEvent {
+    private String accountId;
+    private double initialBalance;
+    private AccountStatus status;
+    private String currency;
+}
+```
+![add account succes](screenShots/3.png) \
+NOTE : ajouter dans `application.properties` \
+```properties
+spring.jpa.hibernate.ddl-auto=update
+```
+On enable H2 console dans `application.properties`
+```properties
+spring.datasource.url=jdbc:h2:mem:accounts-db
+spring.h2.console.enabled=true
+```
+![the event in h2 console](screenShots/4.png) \
 
 
 ## 3 - Implémentation des Événements
