@@ -490,7 +490,7 @@ public class Account {
     @Id
     private String id;
     private double balance;
-    private Date createdAt;
+    private Instant createdAt;
     @Enumerated(EnumType.STRING)
     private AccountStatus status;
     private String currency;
@@ -503,7 +503,7 @@ public class Account {
 public class AccountOperation {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    private Date date;
+    private Instant date;
     private double amount;
     @Enumerated(EnumType.STRING)
     private OperationType type;
@@ -533,7 +533,89 @@ public interface OperationRepository extends JpaRepository<AccountOperation,Long
 ```
 on creer les `event handlers`
 on creer la sous package `query.handlers`
-- ``
+- `AccountEventHandler`
+```java
+@Component
+@Slf4j
+public class AccountEventHandler {
+    private AccountRepository accountRepository;
+    private OperationRepository operationRepository;
+
+    public AccountEventHandler(AccountRepository accountRepository, OperationRepository operationRepository) {
+        this.accountRepository = accountRepository;
+        this.operationRepository = operationRepository;
+    }
+
+    @EventHandler
+    public void on(AccountCreatedEvent event, EventMessage eventMessage){
+        log.info("Query side accountcreated recieved -------------------------");
+        Account account = Account.builder()
+                .id(event.getAccountId())
+                .balance(event.getInitialBalance())
+                .status(event.getStatus())
+                .createdAt(eventMessage.getTimestamp())
+                .build();
+        accountRepository.save(account);
+    }
+}
+```
+on le tester
+![Query side accountcreated recieved dans le console](screenShots/22.png) \
+![accounts list in http://localhost:8088/browser/](screenShots/23.png) \
+on ajoutons dans `AccountEventHandler`
+```java
+@EventHandler
+public void on(AccountActivatedEvent event){
+    log.info("Query side AccountActivatedEvent recieved -------------------------");
+    Account account = accountRepository.findById(event.getAccountId()).get();
+    account.setStatus(event.getStatus());
+    accountRepository.save(account);
+}
+
+@EventHandler
+public void on(AccountStatusUpdatedEvent event){
+    log.info("Query side AccountStatusUpdatedEvent recieved -------------------------");
+    Account account = accountRepository.findById(event.getAccountId()).get();
+    account.setStatus(event.getStatus());
+    accountRepository.save(account);
+}
+
+@EventHandler
+public void on (AccountDebitedEvent event, EventMessage eventMessage){
+    log.info("Query side AccountDebitedEvent recieved -------------------------");
+
+    Account account = accountRepository.findById(event.getAccountId()).get();
+    AccountOperation accountOperation = AccountOperation.builder()
+            .amount(event.getAmmount())
+            .date(eventMessage.getTimestamp())
+            .type(OperationType.DEBIT)
+            .currency(event.getCurrency())
+            .account(account)
+            .build();
+    operationRepository.save(accountOperation);
+    account.setBalance(account.getBalance()-accountOperation.getAmount());
+    accountRepository.save(account);
+}
+
+@EventHandler
+public void on (AccountCreditedEvent event, EventMessage eventMessage){
+    log.info("Query side AccountCreditedEvent recieved -------------------------");
+
+    Account account = accountRepository.findById(event.getAccountId()).get();
+    AccountOperation accountOperation = AccountOperation.builder()
+            .amount(event.getAmmount())
+            .date(eventMessage.getTimestamp())
+            .type(OperationType.DEBIT)
+            .currency(event.getCurrency())
+            .account(account)
+            .build();
+    operationRepository.save(accountOperation);
+    account.setBalance(account.getBalance()+accountOperation.getAmount());
+    accountRepository.save(account);
+}
+```
+on le teste
+![Query side recieved dans le console](screenShots/24.png) \
 
 ## 6 - Streaming des événements en temps réel (SSE)
 
