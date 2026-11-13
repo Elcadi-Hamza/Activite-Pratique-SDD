@@ -617,6 +617,156 @@ public void on (AccountCreditedEvent event, EventMessage eventMessage){
 on le teste
 ![Query side recieved dans le console](screenShots/24.png) \
 
+now gerer les controlleur cote query
+add un sous package `query.controllers`
+- `GetAllAccountsQuery`
+```java
+public class GetAllAccountsQuery {
+}
+```
+- `handlers.AccountQueryHandler`
+```java
+@Component
+public class AccountQueryHandler {
+    private AccountRepository accountRepository;
+    private OperationRepository operationRepository;
+
+    public AccountQueryHandler(AccountRepository accountRepository, OperationRepository operationRepository) {
+        this.accountRepository = accountRepository;
+        this.operationRepository = operationRepository;
+    }
+    @QueryHandler
+    public List<Account> on(GetAllAccountsQuery query){
+        return accountRepository.findAll();
+    }
+    
+}
+```
+- `AccountQueryController`
+```java
+@RestController
+@RequestMapping("/query/accounts")
+public class AccountQueryController {
+    private QueryGateway queryGateway;
+
+    public AccountQueryController(QueryGateway queryGateway) {
+        this.queryGateway = queryGateway;
+    }
+    @GetMapping("/all")
+    public CompletableFuture<List<Account>> getAllAccounts() {
+        CompletableFuture<List<Account>> response = queryGateway.query(new GetAllAccountsQuery(), ResponseTypes.multipleInstancesOf(Account.class));
+        return response;
+    }
+}
+```
+on le test
+![http://localhost:8066/query/accounts/all](screenShots/25.png) \
+on create 
+- `query.dtos.AccountStatementResponseDTO`
+```java
+public record AccountStatementResponseDTO(
+        Account account, List<AccountOperation> operations
+) {
+}
+```
+- `queries.GetAccountStatementQuery`
+```java
+@Getter @AllArgsConstructor
+public class GetAccountStatementQuery {
+    private String accountId;
+}
+```
+puis dans `AccountQueryController`
+```java
+@GetMapping("/accountStatement/{accountId}")
+public CompletableFuture<AccountStatementResponseDTO> getAccountStatement(@PathVariable String accountId){
+    return queryGateway.query(new GetAccountStatementQuery(accountId),
+            ResponseTypes.instanceOf(AccountStatementResponseDTO.class));
+}
+```
+puis dans `AccountQueryHandler`
+```java
+@QueryHandler
+public AccountStatementResponseDTO on(GetAccountStatementQuery query){
+    Account account = accountRepository.findById(query.getAccountId()).get();
+    List<AccountOperation> operations = operationRepository.findByAccountId(query.getAccountId());
+    return new AccountStatementResponseDTO(account,operations);
+}
+```
+on le tester
+![accountStatement in swager](screenShots/26.png) \
+
 ## 6 - Streaming des événements en temps réel (SSE)
+on ajoute
+la dependance 
+```xml
+dependency>
+    <groupId>io.projectreactor</groupId>
+    <artifactId>reactor-core</artifactId>
+    <version>3.7.2</version>
+</dependency>
+```
+- `queries.WatchEventQuery`
+```java
+@Getter @AllArgsConstructor
+public class WatchEventQuery {
+    private String accountId;
+}
+```
+dans le lcontroller AccountQueryCOntroller
+```java
+@GetMapping(value = "/watch/{accountId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<AccountOperation> watch(@PathVariable String accountId){
+    SubscriptionQueryResult<AccountOperation, AccountOperation> result =
+            queryGateway.subscriptionQuery(new WatchEventQuery(accountId),
+                    ResponseTypes.instanceOf(AccountOperation.class),
+                    ResponseTypes.instanceOf(AccountOperation.class));
+    return result.initialResult().concatWith(result.updates());
+}
+```
+add dans `AccountEventHandler` and at the end of credited event and debited event
+```java
+private QueryUpdateEmitter queryUpdateEmitter;
+        queryUpdateEmitter.emit(e->true, accountOperation);
+
+```
+dans `AccountQueryHandler`
+```java
+@QueryHandler
+public AccountOperation on(WatchEventQuery query){
+    return AccountOperation.builder().build();
+}
+```
+dans `AccountQueryController`
+```java
+@GetMapping(value = "/watch/{accountId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+public Flux<AccountOperation> watch(@PathVariable String accountId){
+    SubscriptionQueryResult<AccountOperation, AccountOperation> result =
+            queryGateway.subscriptionQuery(new WatchEventQuery(accountId),
+                    ResponseTypes.instanceOf(AccountOperation.class),
+                    ResponseTypes.instanceOf(AccountOperation.class));
+    return result.initialResult().concatWith(result.updates());
+}
+```
+on le test
+![/watch](screenShots/27.png) \
+
 
 ## 7 - Intégration d'Axon Server
+on commenter 
+```xml
+ <dependency>
+    <groupId>org.axonframework</groupId>
+    <artifactId>axon-spring-boot-starter</artifactId>
+    <version>4.13.2</version>
+<!--    <exclusions>-->
+<!--        <exclusion>-->
+<!--            <groupId>org.axonframework</groupId>-->
+<!--            <artifactId>axon-server-connector</artifactId>-->
+<!--        </exclusion>-->
+<!--    </exclusions>-->
+</dependency>
+```
+puis download axon server : https://www.axoniq.io/download/axon-server-releases
+ou utilisant docker 
+on updating the fichier compose.yaml 
