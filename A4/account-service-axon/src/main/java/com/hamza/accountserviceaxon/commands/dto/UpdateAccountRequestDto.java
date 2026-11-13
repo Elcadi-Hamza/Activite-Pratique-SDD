@@ -1,4 +1,6 @@
 package com.hamza.accountserviceaxon.commands.dto;
 
-public record UpdateAccountRequestDto(String accountId, double ammount, String currency) {
+import com.hamza.accountserviceaxon.enums.AccountStatus;
+
+public record UpdateAccountRequestDto(String accountId, AccountStatus status) {
 }

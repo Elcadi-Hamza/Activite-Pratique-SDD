@@ -425,9 +425,64 @@ on le test
 On ajoutons la fonction de changement de letat de compte
 on creer les class
 - UpdateAccountRequestDto
+```java
+public record UpdateAccountRequestDto(String accountId, AccountStatus status) {
+}
+```
+- UpdateAccountCommand
+```java
+@Getter @AllArgsConstructor
+public class UpdateAccountCommand {
+    @TargetAggregateIdentifier
+    private String id;
+    private AccountStatus status;
+}
+```
+dans controller `AccountCommandController`
+```java
+@PutMapping("/updateStatus")
+public CompletableFuture<String> updateStatus(@RequestBody UpdateAccountRequestDto requestDto) {
+    CompletableFuture<String> response = commandGateway.send(new UpdateAccountCommand(
+            requestDto.accountId(),
+            requestDto.status()
+    ));
+    return response;
+}
+```
+- `AccountStatusUpdatedEvent`
+```java
+@Getter @AllArgsConstructor @Builder @NoArgsConstructor
+public class AccountStatusUpdatedEvent {
+    private String accountId;
+    private AccountStatus status;
+}
+```
+
+dans `AccountAggregate`
+```java
+@CommandHandler
+public void handle(UpdateAccountCommand command){
+    log.info("##################### UpdateAccountCommand recived ############################");
+    if(command.getStatus() == status) throw  new RuntimeException("The account already " + command.getStatus() );
+    AggregateLifecycle.apply(new AccountStatusUpdatedEvent(
+            command.getId(),
+            command.getStatus()
+    ));
+}
+@EventSourcingHandler
+public void on(AccountStatusUpdatedEvent event){
+    log.info("##################### AccountStatusUpdatedEvent occured ############################");
+    this.accountId = event.getAccountId();
+    this.status = event.getStatus();
+}
+```
+on le test
+![update account en swager](screenShots/20.png) \
+![list devents d account](screenShots/21.png) \
 
 ## 5 - Développements du Côté Lecture
 On creer le package `query` (ecriture)
+
 
 ## 6 - Streaming des événements en temps réel (SSE)
 

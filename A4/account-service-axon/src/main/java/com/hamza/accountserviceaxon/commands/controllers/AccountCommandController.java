@@ -3,9 +3,11 @@ package com.hamza.accountserviceaxon.commands.controllers;
 import com.hamza.accountserviceaxon.commands.commands.AddAccountCommand;
 import com.hamza.accountserviceaxon.commands.commands.CreditAccountCommand;
 import com.hamza.accountserviceaxon.commands.commands.DebitAccountCommand;
+import com.hamza.accountserviceaxon.commands.commands.UpdateAccountCommand;
 import com.hamza.accountserviceaxon.commands.dto.AddNewAccountRequestDto;
 import com.hamza.accountserviceaxon.commands.dto.CreditAccountRequestDto;
 import com.hamza.accountserviceaxon.commands.dto.DebitAccountRequestDto;
+import com.hamza.accountserviceaxon.commands.dto.UpdateAccountRequestDto;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.axonframework.commandhandling.gateway.CommandGateway;
@@ -72,10 +74,9 @@ public class AccountCommandController {
 
     @PutMapping("/updateStatus")
     public CompletableFuture<String> updateStatus(@RequestBody UpdateAccountRequestDto requestDto) {
-        CompletableFuture<String> response = commandGateway.send(new DebitAccountCommand(
+        CompletableFuture<String> response = commandGateway.send(new UpdateAccountCommand(
                 requestDto.accountId(),
-                requestDto.ammount(),
-                requestDto.currency()
+                requestDto.status()
         ));
         return response;
     }
