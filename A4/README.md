@@ -230,6 +230,83 @@ spring.datasource.url= ${DB_URL:jdbc:postgresql://localhost:5432/accounts_db}
 spring.datasource.username=admin
 spring.datasource.password=1234
 ```
+et on faire la connection
+![connection au postgress](screenShots/6.png) \
+et on le test on ajoutons une account
+![postgress column added](screenShots/7.png) \
+on ajoutons la methode `eventStore` dans `AccountCommandController`
+```java
+@GetMapping("/events/{accountId}")
+public Stream eventStore(@PathVariable String accountId){
+    return eventStore.readEvents(accountId).asStream();
+}
+```
+on le test
+![postgress column added](screenShots/8.png) \
+Note : add `AccountCreatedEvent`
+```java
+@Getter @AllArgsConstructor @Builder @NoArgsConstructor
+```
+on creer les class
+- `CreditAccountCommand`
+```java
+@Getter @AllArgsConstructor
+public class CreditAccountCommand {
+    @TargetAggregateIdentifier
+    private String id;
+    private double ammount;
+    private String currency;
+}
+```
+- CreditAccountRequestDto
+```java
+public record CreditAccountRequestDto(String accountId,double ammount, String currency) {
+}
+```
+et on update le controller 
+```java
+@PostMapping("/credit")
+public CompletableFuture<String> creditAccount(@RequestBody CreditAccountRequestDto requestDto) {
+    //dispatching //<String> car targetAgrregate is a sting
+    CompletableFuture<String> response = commandGateway.send(new CreditAccountCommand(
+            requestDto.accountId(),
+            requestDto.ammount(),
+            requestDto.currency()
+    ));
+    return response;
+}
+```
+- `AccountCreditedEvent`
+```java
+@Getter @AllArgsConstructor @Builder @NoArgsConstructor
+public class AccountCreditedEvent {
+    private String accountId;
+    private double ammount;
+    private String currency;
+}
+```
+puis dans `AccountAggregate`
+
+```java
+@CommandHandler
+public void handle(CreditAccountCommand command){
+    log.info("##################### CreditAccountCommand recived ############################");
+    if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account" + command.getId() + " is not activated");
+    if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
+    //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+    AggregateLifecycle.apply(new AccountCreditedEvent(
+            command.getId(),
+            command.getAmmount(),
+            command.getCurrency()
+    ));
+}
+@EventSourcingHandler
+public void on(AccountCreditedEvent event){
+    log.info("##################### AccountCreditedEvent occured ############################");
+    this.accountId = event.getAccountId();
+    this.balance = this.balance + event.getAmmount();
+}
+```
 
 ## 5 - Développements du Côté Lecture
 On creer le package `query` (ecriture)

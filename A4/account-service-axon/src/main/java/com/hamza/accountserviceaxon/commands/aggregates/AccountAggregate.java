@@ -1,8 +1,10 @@
 package com.hamza.accountserviceaxon.commands.aggregates;
 
 import com.hamza.accountserviceaxon.commands.commands.AddAccountCommand;
+import com.hamza.accountserviceaxon.commands.commands.CreditAccountCommand;
 import com.hamza.accountserviceaxon.enums.AccountStatus;
 import com.hamza.accountserviceaxon.events.AccountCreatedEvent;
+import com.hamza.accountserviceaxon.events.AccountCreditedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.axonframework.commandhandling.CommandHandler;
 import org.axonframework.eventsourcing.EventSourcingHandler;
@@ -35,11 +37,31 @@ public class AccountAggregate {
         ));
     }
 
+
     @EventSourcingHandler
     public void on(AccountCreatedEvent event){
         log.info("##################### AccountCreatedEvent occured ############################");
         this.accountId = event.getAccountId();
         this.balance = event.getInitialBalance();
         this.status = event.getStatus();
+    }
+    @CommandHandler
+    public void handle(CreditAccountCommand command){
+        log.info("##################### CreditAccountCommand recived ############################");
+        if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account" + command.getId() + " is not activated");
+        if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
+        //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+        AggregateLifecycle.apply(new AccountCreditedEvent(
+                command.getId(),
+                command.getAmmount(),
+                command.getCurrency()
+        ));
+    }
+
+    @EventSourcingHandler
+    public void on(AccountCreditedEvent event){
+        log.info("##################### AccountCreditedEvent occured ############################");
+        this.accountId = event.getAccountId();
+        this.balance = this.balance + event.getAmmount();
     }
 }
