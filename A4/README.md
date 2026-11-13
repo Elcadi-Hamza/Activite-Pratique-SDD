@@ -1,23 +1,36 @@
-# Rapport de l'Activité Pratique N°4 - CQRS et Event Sourcing avec AXON et Spring Cloud
+# Rapport de l'Activité Pratique N°4 : CQRS et Event Sourcing avec Axon et Spring Boot
 
 **Référence :** https://www.youtube.com/watch?v=ZxE9mbvu0og \
 **Réalisé par :** HAMZA ELCADI - GLSID3
 
 ---
 
+## Introduction
+
+Cette activité a pour objectif de mettre en œuvre deux patrons d'architecture avec le framework **Axon** :
+
+- **CQRS** (Command Query Responsibility Segregation) : on sépare le côté **écriture** (commandes qui modifient l'état) du côté **lecture** (requêtes qui consultent l'état).
+- **Event Sourcing** : au lieu de stocker l'état courant d'un compte, on stocke la **suite des événements** qui l'ont modifié (création, crédit, débit, etc.). L'état actuel s'obtient en rejouant ces événements.
+
+Nous développons un micro-service de gestion de comptes bancaires qui applique ces deux patrons.
+
+---
+
 ## 1 - Création du projet
 
-On crée un projet Java `account-service-axon` :
+Nous créons un projet Java nommé `account-service-axon` :
 
 ![Création du projet](screenShots/0.png)
 
-Avec les dépendances suivantes :
+avec les dépendances suivantes :
 - **Spring Web**
 - **Spring Data JPA**
 - **Lombok**
 - **H2 Database**
-- **PostgresSQL Driver**\
-En modifier la version de `lombok` on ajoutons la version
+- **PostgreSQL Driver**
+
+Nous modifions la version de `lombok` en la fixant à `1.18.34`, à la fois dans la dépendance et dans la configuration de l'annotation processor :
+
 ```xml
 <dependency>
     <groupId>org.projectlombok</groupId>
@@ -25,7 +38,8 @@ En modifier la version de `lombok` on ajoutons la version
     <version>1.18.34</version>
     <optional>true</optional>
 </dependency>
- <annotationProcessorPaths>
+
+<annotationProcessorPaths>
     <path>
         <groupId>org.projectlombok</groupId>
         <artifactId>lombok</artifactId>
@@ -33,7 +47,9 @@ En modifier la version de `lombok` on ajoutons la version
     </path>
 </annotationProcessorPaths>
 ```
-on ajoutons la dependances `AXON` framework :
+
+Nous ajoutons ensuite la dépendance du framework **Axon**. L'exclusion du module `axon-server-connector` permet de ne pas utiliser Axon Server : Axon utilise alors un event store en mémoire (dans un premier temps) :
+
 ```xml
 <dependency>
     <groupId>org.axonframework</groupId>
@@ -47,27 +63,34 @@ on ajoutons la dependances `AXON` framework :
     </exclusions>
 </dependency>
 ```
-exclusion donne un serveur au memoire. \
-On ajoutons la dependance de documentation
+
+Enfin, nous ajoutons la dépendance qui génère la documentation de l'API (Swagger UI) :
+
 ```xml
 <dependency>
-      <groupId>org.springdoc</groupId>
-      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-      <version>3.2.0</version>
+    <groupId>org.springdoc</groupId>
+    <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+    <version>3.2.0</version>
 </dependency>
 ```
-## 2 - Développements du Côté Commande
-On creer le package `commands` (ecrire) et un sous package `controllers`. \
-la class `AccountCommandController`
+
+---
+
+## 2 - Développement du côté Commande
+
+Nous créons le package `commands` (côté **écriture**) et, à l'intérieur, le sous-package `controllers` qui contient la classe `AccountCommandController`. Ce contrôleur reçoit les requêtes HTTP et envoie les commandes correspondantes via le `CommandGateway` d'Axon :
+
 ```java
 @RestController
 @RequestMapping("/commands/accounts")
 @AllArgsConstructor
 public class AccountCommandController {
     private CommandGateway commandGateway;
+
     @PostMapping("/add")
     public CompletableFuture<String> addNewAccount(@RequestBody AddNewAccountRequestDto requestDto) {
-        //dispatching //<String> car targetAgrregate is a sting
+        // Envoi (dispatch) de la commande. Le type retourné est <String>
+        // car l'identifiant de l'agrégat est de type String.
         CompletableFuture<String> response = commandGateway.send(new AddAccountCommand(
                 UUID.randomUUID().toString(),
                 requestDto.initialBalance(),
@@ -75,19 +98,23 @@ public class AccountCommandController {
         ));
         return response;
     }
+
     @ExceptionHandler(Exception.class)
     public String exceptionHandler(Exception exception) {
         return exception.getMessage();
     }
-
 }
 ```
-et une sous package `dto` et la class `AddNewAccountRequestDto`
+
+Dans un sous-package `dto`, nous créons la classe `AddNewAccountRequestDto` :
+
 ```java
 public record AddNewAccountRequestDto(double initialBalance, String currency) {
 }
 ```
-et une sous package `commands` et la class `AddAccountCommand`
+
+Dans un sous-package `commands`, nous créons la commande `AddAccountCommand`. L'annotation `@TargetAggregateIdentifier` indique à Axon quel attribut identifie l'agrégat visé par la commande :
+
 ```java
 @Getter @AllArgsConstructor
 public class AddAccountCommand {
@@ -97,34 +124,50 @@ public class AddAccountCommand {
     private String currency;
 }
 ```
-et dans `application.properties`
+
+Dans `application.properties`, nous configurons le nom et le port de l'application :
+
 ```properties
 spring.application.name=account-service-axon
 server.port=8066
 ```
-![documentation swager](screenShots/1.png) \
-![l'error de No handler was subscribed for command commands.commands.AddAccountCommand.](screenShots/2.png) \
 
-## 3 - Implémentation des Événements
-### Creation d'aggrega
-on creer la package `commands.aggregates` dans lequel la class `AccountAggregate`
+Voici la documentation Swagger générée :
+
+![Documentation Swagger](screenShots/1.png)
+
+Si nous testons l'ajout d'un compte à ce stade, nous obtenons l'erreur `No handler was subscribed for command commands.commands.AddAccountCommand`. Elle est normale : aucune classe ne traite encore cette commande. Nous la traiterons dans l'agrégat à l'étape suivante.
+
+![Erreur : aucun handler pour AddAccountCommand](screenShots/2.png)
+
+---
+
+## 3 - Implémentation des événements
+
+### 3.1 - Création de l'agrégat
+
+Nous créons le package `commands.aggregates` et la classe `AccountAggregate`. L'agrégat contient :
+- les **règles métier** : les méthodes annotées `@CommandHandler` décident si une commande est valide ;
+- les **mises à jour d'état** : les méthodes annotées `@EventSourcingHandler` modifient l'état de l'agrégat à partir d'un événement.
+
 ```java
 @Aggregate
 @Slf4j
 public class AccountAggregate {
+    @AggregateIdentifier
     private String accountId;
     private double balance;
     private AccountStatus status;
 
-    //pour AXON
-    public AccountAggregate(){}
+    // Constructeur sans argument, obligatoire pour Axon
+    public AccountAggregate() {}
 
-    //les regles metiers / fonction de decision
+    // Règles métier (fonction de décision)
     @CommandHandler
-    public AccountAggregate(AddAccountCommand command){
-        log.info("##################### AddAccountCommand recived ############################");
-        if(command.getInitialBalance()<=0) throw new IllegalArgumentException("Balance must be positive");
-        //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+    public AccountAggregate(AddAccountCommand command) {
+        log.info("##################### AddAccountCommand received ############################");
+        if (command.getInitialBalance() <= 0) throw new IllegalArgumentException("Balance must be positive");
+        // Si les règles métier sont satisfaites, on publie l'événement
         AggregateLifecycle.apply(new AccountCreatedEvent(
                 command.getId(),
                 command.getInitialBalance(),
@@ -133,22 +176,29 @@ public class AccountAggregate {
         ));
     }
 
+    // Mise à jour de l'état à partir de l'événement
     @EventSourcingHandler
-    public void on(AccountCreatedEvent event){
-        log.info("##################### AccountCreatedEvent occured ############################");
+    public void on(AccountCreatedEvent event) {
+        log.info("##################### AccountCreatedEvent occurred ############################");
         this.accountId = event.getAccountId();
         this.balance = event.getInitialBalance();
         this.status = event.getStatus();
     }
 }
 ```
-Note creeer la class `enums.AccountStatus`
+
+> **Note :** l'annotation `@AggregateIdentifier` sur `accountId` permet à Axon d'identifier l'agrégat lors du chargement de ses événements.
+
+Nous créons l'énumération `enums.AccountStatus` :
+
 ```java
 public enum AccountStatus {
     CREATED, SUSPENDED, ACTIVATED, BLOCKED
 }
 ```
-et une package `events` la class `AccountCreatedEvent`
+
+Puis, dans le package `events`, la classe `AccountCreatedEvent` :
+
 ```java
 @Getter @AllArgsConstructor
 public class AccountCreatedEvent {
@@ -158,29 +208,42 @@ public class AccountCreatedEvent {
     private String currency;
 }
 ```
-![add account succes](screenShots/3.png) \
-NOTE : ajouter dans `application.properties` \
+
+Test de l'ajout d'un compte :
+
+![Ajout d'un compte réussi](screenShots/3.png)
+
+### 3.2 - Consultation des événements dans la console H2
+
+Pour que Hibernate crée automatiquement les tables, nous ajoutons dans `application.properties` :
+
 ```properties
 spring.jpa.hibernate.ddl-auto=update
 ```
-On enable H2 console dans `application.properties`
+
+Nous activons ensuite la console H2 :
+
 ```properties
 spring.datasource.url=jdbc:h2:mem:accounts-db
 spring.h2.console.enabled=true
 ```
-![the event in h2 console](screenShots/4.png) \
-on ajoutons les proprietes suivants
+
+![L'événement dans la console H2](screenShots/4.png)
+
+Nous configurons enfin la sérialisation des événements et des messages :
+
 ```properties
 axon.serializer.events=jackson
 axon.serializer.messages=xstream
 axon.serializer.general=jackson
 ```
 
-
+---
 
 ## 4 - Persistance avec PostgreSQL et Docker Compose
-on demarer postgress utilisant docker \
-on creer un fichier `composer.yaml`
+
+Jusqu'ici, les données sont stockées en mémoire et disparaissent à chaque redémarrage. Nous démarrons donc PostgreSQL avec Docker. Nous créons un fichier `compose.yaml` qui définit deux services : PostgreSQL et pgAdmin (interface d'administration).
+
 ```yaml
 services:
   postgres:
@@ -190,7 +253,7 @@ services:
       - 'POSTGRES_PASSWORD=1234'
       - 'POSTGRES_USER=admin'
     volumes:
-      - accounts_data:/var/lib/postgresql
+      - accounts_data:/var/lib/postgresql/data
     ports:
       - '5432:5432'
     networks:
@@ -215,40 +278,61 @@ networks:
   accounts-net:
     driver: bridge
 ```
-puis run la commande 
+
+Nous lançons ensuite les conteneurs :
+
 ```shell
 docker compose up
 ```
-![docker compose up](screenShots/5.png) \
 
-puis on ajoutons les proprietes suivants :
+![docker compose up](screenShots/5.png)
+
+Nous modifions les propriétés de l'application pour utiliser PostgreSQL :
+
 ```properties
-spring.jpa.properties.hibernate.dialect = org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
 spring.jpa.hibernate.ddl-auto=create
-spring.jpa.hibernate.show-sql=true
-spring.datasource.url= ${DB_URL:jdbc:postgresql://localhost:5432/accounts_db}
+spring.jpa.show-sql=true
+spring.datasource.url=${DB_URL:jdbc:postgresql://localhost:5432/accounts_db}
 spring.datasource.username=admin
 spring.datasource.password=1234
 ```
-et on faire la connection
-![connection au postgress](screenShots/6.png) \
-et on le test on ajoutons une account
-![postgress column added](screenShots/7.png) \
-on ajoutons la methode `eventStore` dans `AccountCommandController`
+
+> **Attention :** `ddl-auto=create` supprime et recrée les tables à chaque démarrage. Pour conserver les événements entre deux exécutions, il faut utiliser `update`.
+
+Nous nous connectons à la base de données :
+
+![Connexion à PostgreSQL](screenShots/6.png)
+
+Nous testons en ajoutant un compte :
+
+![Ligne ajoutée dans PostgreSQL](screenShots/7.png)
+
+Nous ajoutons la méthode `eventStore` dans `AccountCommandController` pour lire les événements d'un compte. Elle utilise le bean `EventStore` d'Axon, qu'il faut injecter dans le contrôleur :
+
 ```java
+private EventStore eventStore;
+
 @GetMapping("/events/{accountId}")
-public Stream eventStore(@PathVariable String accountId){
+public Stream eventStore(@PathVariable String accountId) {
     return eventStore.readEvents(accountId).asStream();
 }
 ```
-on le test
-![postgress column added](screenShots/8.png) \
-Note : add `AccountCreatedEvent`
-```java
-@Getter @AllArgsConstructor @Builder @NoArgsConstructor
-```
-on creer les class
-- `CreditAccountCommand`
+
+Test :
+
+![Lecture des événements](screenShots/8.png)
+
+> **Note :** nous ajoutons les annotations suivantes sur `AccountCreatedEvent` (le constructeur sans argument est nécessaire à la désérialisation Jackson) :
+> ```java
+> @Getter @AllArgsConstructor @Builder @NoArgsConstructor
+> ```
+
+### 4.1 - Opération de crédit
+
+Nous créons les classes suivantes.
+
+**`CreditAccountCommand`**
 ```java
 @Getter @AllArgsConstructor
 public class CreditAccountCommand {
@@ -258,16 +342,18 @@ public class CreditAccountCommand {
     private String currency;
 }
 ```
-- CreditAccountRequestDto
+
+**`CreditAccountRequestDto`**
 ```java
-public record CreditAccountRequestDto(String accountId,double ammount, String currency) {
+public record CreditAccountRequestDto(String accountId, double ammount, String currency) {
 }
 ```
-et on update le controller 
+
+Nous ajoutons l'endpoint dans le contrôleur :
+
 ```java
 @PostMapping("/credit")
 public CompletableFuture<String> creditAccount(@RequestBody CreditAccountRequestDto requestDto) {
-    //dispatching //<String> car targetAgrregate is a sting
     CompletableFuture<String> response = commandGateway.send(new CreditAccountCommand(
             requestDto.accountId(),
             requestDto.ammount(),
@@ -276,7 +362,8 @@ public CompletableFuture<String> creditAccount(@RequestBody CreditAccountRequest
     return response;
 }
 ```
-- `AccountCreditedEvent`
+
+**`AccountCreditedEvent`**
 ```java
 @Getter @AllArgsConstructor @Builder @NoArgsConstructor
 public class AccountCreditedEvent {
@@ -285,7 +372,8 @@ public class AccountCreditedEvent {
     private String currency;
 }
 ```
-- `AccountActivatedEvent`
+
+**`AccountActivatedEvent`** : un compte nouvellement créé doit être activé avant de pouvoir être crédité. Nous publions donc un second événement juste après la création.
 ```java
 @Getter @AllArgsConstructor @Builder @NoArgsConstructor
 public class AccountActivatedEvent {
@@ -293,20 +381,22 @@ public class AccountActivatedEvent {
     private AccountStatus status;
 }
 ```
-puis dans `AccountAggregate`
+
+Nous complétons ensuite `AccountAggregate` :
 
 ```java
 @EventSourcingHandler
-public void on(AccountActivatedEvent event){
-    log.info("##################### AccountActivated occured ############################");
+public void on(AccountActivatedEvent event) {
+    log.info("##################### AccountActivatedEvent occurred ############################");
     this.accountId = event.getAccountId();
     this.status = event.getStatus();
 }
+
 @CommandHandler
-public AccountAggregate(AddAccountCommand command){
-    log.info("##################### AddAccountCommand recived ############################");
-    if(command.getInitialBalance()<=0) throw new IllegalArgumentException("Balance must be positive");
-    //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+public AccountAggregate(AddAccountCommand command) {
+    log.info("##################### AddAccountCommand received ############################");
+    if (command.getInitialBalance() <= 0) throw new IllegalArgumentException("Balance must be positive");
+    // Si les règles métier sont satisfaites, on publie les événements
     AggregateLifecycle.apply(new AccountCreatedEvent(
             command.getId(),
             command.getInitialBalance(),
@@ -318,54 +408,73 @@ public AccountAggregate(AddAccountCommand command){
             AccountStatus.ACTIVATED
     ));
 }
+
 @CommandHandler
-public void handle(CreditAccountCommand command){
-    log.info("##################### CreditAccountCommand recived ############################");
-    if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account" + command.getId() + " is not activated");
-    if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
-    //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+public void handle(CreditAccountCommand command) {
+    log.info("##################### CreditAccountCommand received ############################");
+    if (!status.equals(AccountStatus.ACTIVATED))
+        throw new RuntimeException("The account " + command.getId() + " is not activated");
+    if (command.getAmmount() <= 0) throw new IllegalArgumentException("Amount must be positive.");
     AggregateLifecycle.apply(new AccountCreditedEvent(
             command.getId(),
             command.getAmmount(),
             command.getCurrency()
     ));
 }
+
 @EventSourcingHandler
-public void on(AccountCreditedEvent event){
-    log.info("##################### AccountCreditedEvent occured ############################");
+public void on(AccountCreditedEvent event) {
+    log.info("##################### AccountCreditedEvent occurred ############################");
     this.accountId = event.getAccountId();
     this.balance = this.balance + event.getAmmount();
 }
 ```
-apres la creation de account
-![creation d'account](screenShots/9.png) \
-il ya deux evenement a ete created
-![les event in postgress database](screenShots/10.png) \
-![les event in swager](screenShots/11.png) \
-en tester account credit
-![account credit in swager](screenShots/12.png) \
 
-en entrer pgADMIN
-![login page of pgadmin](screenShots/13.png) \
-![dashboard](screenShots/14.png) \
-on creer un serveur `accounts-db`
-![creation de serveur](screenShots/15.png) \
-avec le parametere
-- name : accounts-db
-- connection / host name : postgres
-- connection / maintenance : accounts_db
-- connection / username : admin
-- connection / password : 1234
-![dashboard](screenShots/16.png) \
-![list des evenement](screenShots/17.png) \
+Après la création d'un compte :
 
-on ajoutons le cas de `debit`
-- DebitAccountRequestDto
+![Création d'un compte](screenShots/9.png)
+
+Deux événements ont été enregistrés (`AccountCreatedEvent` et `AccountActivatedEvent`) :
+
+![Les événements dans la base PostgreSQL](screenShots/10.png)
+![Les événements dans Swagger](screenShots/11.png)
+
+Test du crédit d'un compte :
+
+![Crédit d'un compte dans Swagger](screenShots/12.png)
+
+### 4.2 - Consultation avec pgAdmin
+
+Nous accédons à pgAdmin :
+
+![Page de connexion de pgAdmin](screenShots/13.png)
+![Tableau de bord](screenShots/14.png)
+
+Nous créons un serveur nommé `accounts-db` :
+
+![Création du serveur](screenShots/15.png)
+
+avec les paramètres suivants :
+- **Name :** accounts-db
+- **Connection / Host name :** postgres (nom du service Docker, accessible grâce au réseau `accounts-net`)
+- **Connection / Maintenance database :** accounts_db
+- **Connection / Username :** admin
+- **Connection / Password :** 1234
+
+![Tableau de bord du serveur](screenShots/16.png)
+![Liste des événements](screenShots/17.png)
+
+### 4.3 - Opération de débit
+
+Nous ajoutons maintenant le cas du débit.
+
+**`DebitAccountRequestDto`**
 ```java
 public record DebitAccountRequestDto(String accountId, double ammount, String currency) {
 }
 ```
-- `DebitAccountCommand`
+
+**`DebitAccountCommand`**
 ```java
 @Getter @AllArgsConstructor
 public class DebitAccountCommand {
@@ -375,11 +484,11 @@ public class DebitAccountCommand {
     private String currency;
 }
 ```
-- dans `AccountCommandController`
+
+**Dans `AccountCommandController`**
 ```java
 @PostMapping("/debit")
 public CompletableFuture<String> debitAccount(@RequestBody DebitAccountRequestDto requestDto) {
-    //dispatching //<String> car targetAgrregate is a sting
     CompletableFuture<String> response = commandGateway.send(new DebitAccountCommand(
             requestDto.accountId(),
             requestDto.ammount(),
@@ -388,7 +497,8 @@ public CompletableFuture<String> debitAccount(@RequestBody DebitAccountRequestDt
     return response;
 }
 ```
-- `AccountDebitedEvent`
+
+**`AccountDebitedEvent`**
 ```java
 @Getter @AllArgsConstructor @Builder @NoArgsConstructor
 public class AccountDebitedEvent {
@@ -396,40 +506,48 @@ public class AccountDebitedEvent {
     private double ammount;
     private String currency;
 }
-
 ```
-- dans `AccountAggregate`
+
+**Dans `AccountAggregate`**
 ```java
 @CommandHandler
-public void handle(DebitAccountCommand command){
-    log.info("##################### DebitAccountCommand recived ############################");
-    if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account " + command.getId() + " is not activated");
-    if(balance<command.getAmmount()) throw  new RuntimeException("balance not enought exception");
-    if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
+public void handle(DebitAccountCommand command) {
+    log.info("##################### DebitAccountCommand received ############################");
+    if (!status.equals(AccountStatus.ACTIVATED))
+        throw new RuntimeException("The account " + command.getId() + " is not activated");
+    if (command.getAmmount() <= 0) throw new IllegalArgumentException("Amount must be positive.");
+    if (balance < command.getAmmount()) throw new RuntimeException("Insufficient balance");
     AggregateLifecycle.apply(new AccountDebitedEvent(
             command.getId(),
             command.getAmmount(),
             command.getCurrency()
     ));
 }
+
 @EventSourcingHandler
-public void on(AccountDebitedEvent event){
-    log.info("##################### AccountDebitedEvent occured ############################");
+public void on(AccountDebitedEvent event) {
+    log.info("##################### AccountDebitedEvent occurred ############################");
     this.accountId = event.getAccountId();
     this.balance = this.balance - event.getAmmount();
 }
 ```
-on le test
-![debit daccount en swager](screenShots/18.png) \
-![list devents d account](screenShots/19.png) \
-On ajoutons la fonction de changement de letat de compte
-on creer les class
-- UpdateAccountRequestDto
+
+Test :
+
+![Débit d'un compte dans Swagger](screenShots/18.png)
+![Liste des événements du compte](screenShots/19.png)
+
+### 4.4 - Changement du statut d'un compte
+
+Nous ajoutons la possibilité de changer le statut d'un compte (par exemple le suspendre ou le bloquer).
+
+**`UpdateAccountRequestDto`**
 ```java
 public record UpdateAccountRequestDto(String accountId, AccountStatus status) {
 }
 ```
-- UpdateAccountCommand
+
+**`UpdateAccountCommand`**
 ```java
 @Getter @AllArgsConstructor
 public class UpdateAccountCommand {
@@ -438,7 +556,8 @@ public class UpdateAccountCommand {
     private AccountStatus status;
 }
 ```
-dans controller `AccountCommandController`
+
+**Dans `AccountCommandController`**
 ```java
 @PutMapping("/updateStatus")
 public CompletableFuture<String> updateStatus(@RequestBody UpdateAccountRequestDto requestDto) {
@@ -449,7 +568,8 @@ public CompletableFuture<String> updateStatus(@RequestBody UpdateAccountRequestD
     return response;
 }
 ```
-- `AccountStatusUpdatedEvent`
+
+**`AccountStatusUpdatedEvent`**
 ```java
 @Getter @AllArgsConstructor @Builder @NoArgsConstructor
 public class AccountStatusUpdatedEvent {
@@ -458,31 +578,41 @@ public class AccountStatusUpdatedEvent {
 }
 ```
 
-dans `AccountAggregate`
+**Dans `AccountAggregate`**
 ```java
 @CommandHandler
-public void handle(UpdateAccountCommand command){
-    log.info("##################### UpdateAccountCommand recived ############################");
-    if(command.getStatus() == status) throw  new RuntimeException("The account already " + command.getStatus() );
+public void handle(UpdateAccountCommand command) {
+    log.info("##################### UpdateAccountCommand received ############################");
+    if (command.getStatus() == status)
+        throw new RuntimeException("The account is already " + command.getStatus());
     AggregateLifecycle.apply(new AccountStatusUpdatedEvent(
             command.getId(),
             command.getStatus()
     ));
 }
+
 @EventSourcingHandler
-public void on(AccountStatusUpdatedEvent event){
-    log.info("##################### AccountStatusUpdatedEvent occured ############################");
+public void on(AccountStatusUpdatedEvent event) {
+    log.info("##################### AccountStatusUpdatedEvent occurred ############################");
     this.accountId = event.getAccountId();
     this.status = event.getStatus();
 }
 ```
-on le test
-![update account en swager](screenShots/20.png) \
-![list devents d account](screenShots/21.png) \
 
-## 5 - Développements du Côté Lecture
-On creer le package `query` (ecriture)
-on creer la sous packages `entities` et la class `Account`
+Test :
+
+![Mise à jour du statut dans Swagger](screenShots/20.png)
+![Liste des événements du compte](screenShots/21.png)
+
+---
+
+## 5 - Développement du côté Lecture
+
+Le côté commande ne stocke que des événements. Pour consulter efficacement l'état des comptes, nous construisons le côté **lecture** : des handlers écoutent les événements et mettent à jour des tables classiques (la « vue » de lecture).
+
+Nous créons le package `query` (côté **lecture**), puis le sous-package `entities`.
+
+**`Account`**
 ```java
 @Entity
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -496,7 +626,8 @@ public class Account {
     private String currency;
 }
 ```
-- `AccountOperation`
+
+**`AccountOperation`**
 ```java
 @Entity
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
@@ -512,28 +643,33 @@ public class AccountOperation {
     private Account account;
 }
 ```
-- `OperationType`
+
+**`OperationType`**
 ```java
 public enum OperationType {
-    CREDIT,DEBIT
+    CREDIT, DEBIT
 }
 ```
-puis package `repository`
-- `AccountRepository`
-```java
-public interface AccountRepository extends JpaRepository<Account,String> {
-}
-```
-- `OperationRepository`
 
+Nous créons ensuite le package `repository` :
+
+**`AccountRepository`**
 ```java
-public interface OperationRepository extends JpaRepository<AccountOperation,Long> {
+public interface AccountRepository extends JpaRepository<Account, String> {
+}
+```
+
+**`OperationRepository`**
+```java
+public interface OperationRepository extends JpaRepository<AccountOperation, Long> {
     List<AccountOperation> findByAccountId(String id);
 }
 ```
-on creer les `event handlers`
-on creer la sous package `query.handlers`
-- `AccountEventHandler`
+
+### 5.1 - Les gestionnaires d'événements (event handlers)
+
+Nous créons le sous-package `query.handlers` et la classe `AccountEventHandler`. Chaque méthode annotée `@EventHandler` réagit à un type d'événement et met à jour la base de lecture :
+
 ```java
 @Component
 @Slf4j
@@ -547,43 +683,47 @@ public class AccountEventHandler {
     }
 
     @EventHandler
-    public void on(AccountCreatedEvent event, EventMessage eventMessage){
-        log.info("Query side accountcreated recieved -------------------------");
+    public void on(AccountCreatedEvent event, EventMessage eventMessage) {
+        log.info("Query side AccountCreatedEvent received -------------------------");
         Account account = Account.builder()
                 .id(event.getAccountId())
                 .balance(event.getInitialBalance())
                 .status(event.getStatus())
+                .currency(event.getCurrency())
                 .createdAt(eventMessage.getTimestamp())
                 .build();
         accountRepository.save(account);
     }
 }
 ```
-on le tester
-![Query side accountcreated recieved dans le console](screenShots/22.png) \
-![accounts list in http://localhost:8088/browser/](screenShots/23.png) \
-on ajoutons dans `AccountEventHandler`
+
+Test :
+
+![Réception de AccountCreatedEvent dans la console](screenShots/22.png)
+![Liste des comptes dans pgAdmin (http://localhost:8088/browser/)](screenShots/23.png)
+
+Nous ajoutons ensuite les handlers des autres événements dans `AccountEventHandler` :
+
 ```java
 @EventHandler
-public void on(AccountActivatedEvent event){
-    log.info("Query side AccountActivatedEvent recieved -------------------------");
+public void on(AccountActivatedEvent event) {
+    log.info("Query side AccountActivatedEvent received -------------------------");
     Account account = accountRepository.findById(event.getAccountId()).get();
     account.setStatus(event.getStatus());
     accountRepository.save(account);
 }
 
 @EventHandler
-public void on(AccountStatusUpdatedEvent event){
-    log.info("Query side AccountStatusUpdatedEvent recieved -------------------------");
+public void on(AccountStatusUpdatedEvent event) {
+    log.info("Query side AccountStatusUpdatedEvent received -------------------------");
     Account account = accountRepository.findById(event.getAccountId()).get();
     account.setStatus(event.getStatus());
     accountRepository.save(account);
 }
 
 @EventHandler
-public void on (AccountDebitedEvent event, EventMessage eventMessage){
-    log.info("Query side AccountDebitedEvent recieved -------------------------");
-
+public void on(AccountDebitedEvent event, EventMessage eventMessage) {
+    log.info("Query side AccountDebitedEvent received -------------------------");
     Account account = accountRepository.findById(event.getAccountId()).get();
     AccountOperation accountOperation = AccountOperation.builder()
             .amount(event.getAmmount())
@@ -593,38 +733,42 @@ public void on (AccountDebitedEvent event, EventMessage eventMessage){
             .account(account)
             .build();
     operationRepository.save(accountOperation);
-    account.setBalance(account.getBalance()-accountOperation.getAmount());
+    account.setBalance(account.getBalance() - accountOperation.getAmount());
     accountRepository.save(account);
 }
 
 @EventHandler
-public void on (AccountCreditedEvent event, EventMessage eventMessage){
-    log.info("Query side AccountCreditedEvent recieved -------------------------");
-
+public void on(AccountCreditedEvent event, EventMessage eventMessage) {
+    log.info("Query side AccountCreditedEvent received -------------------------");
     Account account = accountRepository.findById(event.getAccountId()).get();
     AccountOperation accountOperation = AccountOperation.builder()
             .amount(event.getAmmount())
             .date(eventMessage.getTimestamp())
-            .type(OperationType.DEBIT)
+            .type(OperationType.CREDIT)
             .currency(event.getCurrency())
             .account(account)
             .build();
     operationRepository.save(accountOperation);
-    account.setBalance(account.getBalance()+accountOperation.getAmount());
+    account.setBalance(account.getBalance() + accountOperation.getAmount());
     accountRepository.save(account);
 }
 ```
-on le teste
-![Query side recieved dans le console](screenShots/24.png) \
 
-now gerer les controlleur cote query
-add un sous package `query.controllers`
-- `GetAllAccountsQuery`
+Test :
+
+![Réception des événements dans la console](screenShots/24.png)
+
+### 5.2 - Les requêtes et les contrôleurs du côté lecture
+
+Nous créons le package `query.controllers`, ainsi que les classes de requêtes.
+
+**`GetAllAccountsQuery`**
 ```java
 public class GetAllAccountsQuery {
 }
 ```
-- `handlers.AccountQueryHandler`
+
+**`handlers.AccountQueryHandler`** : la méthode annotée `@QueryHandler` répond à une requête.
 ```java
 @Component
 public class AccountQueryHandler {
@@ -635,14 +779,15 @@ public class AccountQueryHandler {
         this.accountRepository = accountRepository;
         this.operationRepository = operationRepository;
     }
+
     @QueryHandler
-    public List<Account> on(GetAllAccountsQuery query){
+    public List<Account> on(GetAllAccountsQuery query) {
         return accountRepository.findAll();
     }
-    
 }
 ```
-- `AccountQueryController`
+
+**`AccountQueryController`** : il envoie les requêtes via le `QueryGateway`.
 ```java
 @RestController
 @RequestMapping("/query/accounts")
@@ -652,71 +797,89 @@ public class AccountQueryController {
     public AccountQueryController(QueryGateway queryGateway) {
         this.queryGateway = queryGateway;
     }
+
     @GetMapping("/all")
     public CompletableFuture<List<Account>> getAllAccounts() {
-        CompletableFuture<List<Account>> response = queryGateway.query(new GetAllAccountsQuery(), ResponseTypes.multipleInstancesOf(Account.class));
-        return response;
+        return queryGateway.query(new GetAllAccountsQuery(),
+                ResponseTypes.multipleInstancesOf(Account.class));
     }
 }
 ```
-on le test
-![http://localhost:8066/query/accounts/all](screenShots/25.png) \
-on create 
-- `query.dtos.AccountStatementResponseDTO`
+
+Test :
+
+![http://localhost:8066/query/accounts/all](screenShots/25.png)
+
+Nous créons maintenant le relevé de compte (compte et liste de ses opérations).
+
+**`query.dtos.AccountStatementResponseDTO`**
 ```java
 public record AccountStatementResponseDTO(
         Account account, List<AccountOperation> operations
 ) {
 }
 ```
-- `queries.GetAccountStatementQuery`
+
+**`queries.GetAccountStatementQuery`**
 ```java
 @Getter @AllArgsConstructor
 public class GetAccountStatementQuery {
     private String accountId;
 }
 ```
-puis dans `AccountQueryController`
+
+**Dans `AccountQueryController`**
 ```java
 @GetMapping("/accountStatement/{accountId}")
-public CompletableFuture<AccountStatementResponseDTO> getAccountStatement(@PathVariable String accountId){
+public CompletableFuture<AccountStatementResponseDTO> getAccountStatement(@PathVariable String accountId) {
     return queryGateway.query(new GetAccountStatementQuery(accountId),
             ResponseTypes.instanceOf(AccountStatementResponseDTO.class));
 }
 ```
-puis dans `AccountQueryHandler`
+
+**Dans `AccountQueryHandler`**
 ```java
 @QueryHandler
-public AccountStatementResponseDTO on(GetAccountStatementQuery query){
+public AccountStatementResponseDTO on(GetAccountStatementQuery query) {
     Account account = accountRepository.findById(query.getAccountId()).get();
     List<AccountOperation> operations = operationRepository.findByAccountId(query.getAccountId());
-    return new AccountStatementResponseDTO(account,operations);
+    return new AccountStatementResponseDTO(account, operations);
 }
 ```
-on le tester
-![accountStatement in swager](screenShots/26.png) \
+
+Test :
+
+![accountStatement dans Swagger](screenShots/26.png)
+
+---
 
 ## 6 - Streaming des événements en temps réel (SSE)
-on ajoute
-la dependance 
+
+Nous voulons maintenant recevoir les nouvelles opérations d'un compte **en temps réel**, grâce aux *Server-Sent Events* (SSE) et aux *subscription queries* d'Axon.
+
+Nous ajoutons la dépendance Reactor :
+
 ```xml
-dependency>
+<dependency>
     <groupId>io.projectreactor</groupId>
     <artifactId>reactor-core</artifactId>
     <version>3.7.2</version>
 </dependency>
 ```
-- `queries.WatchEventQuery`
+
+**`queries.WatchEventQuery`**
 ```java
 @Getter @AllArgsConstructor
 public class WatchEventQuery {
     private String accountId;
 }
 ```
-dans le lcontroller AccountQueryCOntroller
+
+**Dans `AccountQueryController`**, nous ajoutons l'endpoint de streaming. La *subscription query* renvoie d'abord un résultat initial, puis chaque mise à jour au fur et à mesure :
+
 ```java
 @GetMapping(value = "/watch/{accountId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-public Flux<AccountOperation> watch(@PathVariable String accountId){
+public Flux<AccountOperation> watch(@PathVariable String accountId) {
     SubscriptionQueryResult<AccountOperation, AccountOperation> result =
             queryGateway.subscriptionQuery(new WatchEventQuery(accountId),
                     ResponseTypes.instanceOf(AccountOperation.class),
@@ -724,49 +887,74 @@ public Flux<AccountOperation> watch(@PathVariable String accountId){
     return result.initialResult().concatWith(result.updates());
 }
 ```
-add dans `AccountEventHandler` and at the end of credited event and debited event
+
+**Dans `AccountEventHandler`**, nous injectons le `QueryUpdateEmitter` et nous émettons une mise à jour à la fin des handlers `AccountCreditedEvent` et `AccountDebitedEvent`. Le filtre garantit que seuls les abonnés du compte concerné reçoivent l'opération :
+
 ```java
 private QueryUpdateEmitter queryUpdateEmitter;
-        queryUpdateEmitter.emit(e->true, accountOperation);
 
+// À la fin des handlers de crédit et de débit :
+queryUpdateEmitter.emit(WatchEventQuery.class,
+        query -> query.getAccountId().equals(event.getAccountId()),
+        accountOperation);
 ```
-dans `AccountQueryHandler`
+
+> N'oubliez pas d'ajouter `QueryUpdateEmitter` au constructeur de `AccountEventHandler`.
+
+**Dans `AccountQueryHandler`**, nous définissons le résultat initial de la requête (une opération vide) :
+
 ```java
 @QueryHandler
-public AccountOperation on(WatchEventQuery query){
+public AccountOperation on(WatchEventQuery query) {
     return AccountOperation.builder().build();
 }
 ```
-dans `AccountQueryController`
-```java
-@GetMapping(value = "/watch/{accountId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-public Flux<AccountOperation> watch(@PathVariable String accountId){
-    SubscriptionQueryResult<AccountOperation, AccountOperation> result =
-            queryGateway.subscriptionQuery(new WatchEventQuery(accountId),
-                    ResponseTypes.instanceOf(AccountOperation.class),
-                    ResponseTypes.instanceOf(AccountOperation.class));
-    return result.initialResult().concatWith(result.updates());
-}
-```
-on le test
-![/watch](screenShots/27.png) \
 
+Test :
+
+![Endpoint /watch](screenShots/27.png)
+
+---
 
 ## 7 - Intégration d'Axon Server
-on commenter 
+
+Jusqu'ici, Axon fonctionnait sans serveur dédié. Nous allons maintenant utiliser **Axon Server**, qui centralise le stockage des événements et le routage des commandes et des requêtes.
+
+Nous commentons l'exclusion du connecteur dans le `pom.xml` :
+
 ```xml
- <dependency>
+<dependency>
     <groupId>org.axonframework</groupId>
     <artifactId>axon-spring-boot-starter</artifactId>
     <version>4.13.2</version>
-<!--    <exclusions>-->
-<!--        <exclusion>-->
-<!--            <groupId>org.axonframework</groupId>-->
-<!--            <artifactId>axon-server-connector</artifactId>-->
-<!--        </exclusion>-->
-<!--    </exclusions>-->
+    <!-- <exclusions>
+        <exclusion>
+            <groupId>org.axonframework</groupId>
+            <artifactId>axon-server-connector</artifactId>
+        </exclusion>
+    </exclusions> -->
 </dependency>
 ```
-puis download axon server : https://www.axoniq.io/download/axon-server-releases
-ou utilisant docker 
-on updating the fichier compose.yaml 
+
+Nous pouvons ensuite télécharger Axon Server depuis https://www.axoniq.io/download/axon-server-releases, ou l'exécuter avec Docker. Dans ce cas, nous ajoutons le service suivant dans le fichier `compose.yaml` :
+
+```yaml
+  axonserver:
+    image: 'axoniq/axonserver:latest'
+    environment:
+      - 'AXONIQ_AXONSERVER_STANDALONE=TRUE'
+    ports:
+      - '8024:8024'
+      - '8124:8124'
+```
+
+Puis nous relançons :
+
+```shell
+docker compose up
+```
+
+Nous accédons au tableau de bord d'Axon Server à l'adresse `localhost:8024` :
+
+![Tableau de bord d'Axon Server](screenShots/28.png)
+![Événements dans Axon Server](screenShots/29.png)
