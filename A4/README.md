@@ -482,7 +482,58 @@ on le test
 
 ## 5 - Développements du Côté Lecture
 On creer le package `query` (ecriture)
+on creer la sous packages `entities` et la class `Account`
+```java
+@Entity
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+public class Account {
+    @Id
+    private String id;
+    private double balance;
+    private Date createdAt;
+    @Enumerated(EnumType.STRING)
+    private AccountStatus status;
+    private String currency;
+}
+```
+- `AccountOperation`
+```java
+@Entity
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+public class AccountOperation {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private Date date;
+    private double amount;
+    @Enumerated(EnumType.STRING)
+    private OperationType type;
+    private String currency;
+    @ManyToOne
+    private Account account;
+}
+```
+- `OperationType`
+```java
+public enum OperationType {
+    CREDIT,DEBIT
+}
+```
+puis package `repository`
+- `AccountRepository`
+```java
+public interface AccountRepository extends JpaRepository<Account,String> {
+}
+```
+- `OperationRepository`
 
+```java
+public interface OperationRepository extends JpaRepository<AccountOperation,Long> {
+    List<AccountOperation> findByAccountId(String id);
+}
+```
+on creer les `event handlers`
+on creer la sous package `query.handlers`
+- ``
 
 ## 6 - Streaming des événements en temps réel (SSE)
 
