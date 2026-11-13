@@ -285,9 +285,39 @@ public class AccountCreditedEvent {
     private String currency;
 }
 ```
+- `AccountActivatedEvent`
+```java
+@Getter @AllArgsConstructor @Builder @NoArgsConstructor
+public class AccountActivatedEvent {
+    private String accountId;
+    private AccountStatus status;
+}
+```
 puis dans `AccountAggregate`
 
 ```java
+@EventSourcingHandler
+public void on(AccountActivatedEvent event){
+    log.info("##################### AccountActivated occured ############################");
+    this.accountId = event.getAccountId();
+    this.status = event.getStatus();
+}
+@CommandHandler
+public AccountAggregate(AddAccountCommand command){
+    log.info("##################### AddAccountCommand recived ############################");
+    if(command.getInitialBalance()<=0) throw new IllegalArgumentException("Balance must be positive");
+    //si les regeles metiers sont satisfaite on lance et dipatch les evenment
+    AggregateLifecycle.apply(new AccountCreatedEvent(
+            command.getId(),
+            command.getInitialBalance(),
+            AccountStatus.CREATED,
+            command.getCurrency()
+    ));
+    AggregateLifecycle.apply(new AccountActivatedEvent(
+            command.getId(),
+            AccountStatus.ACTIVATED
+    ));
+}
 @CommandHandler
 public void handle(CreditAccountCommand command){
     log.info("##################### CreditAccountCommand recived ############################");
@@ -307,6 +337,94 @@ public void on(AccountCreditedEvent event){
     this.balance = this.balance + event.getAmmount();
 }
 ```
+apres la creation de account
+![creation d'account](screenShots/9.png) \
+il ya deux evenement a ete created
+![les event in postgress database](screenShots/10.png) \
+![les event in swager](screenShots/11.png) \
+en tester account credit
+![account credit in swager](screenShots/12.png) \
+
+en entrer pgADMIN
+![login page of pgadmin](screenShots/13.png) \
+![dashboard](screenShots/14.png) \
+on creer un serveur `accounts-db`
+![creation de serveur](screenShots/15.png) \
+avec le parametere
+- name : accounts-db
+- connection / host name : postgres
+- connection / maintenance : accounts_db
+- connection / username : admin
+- connection / password : 1234
+![dashboard](screenShots/16.png) \
+![list des evenement](screenShots/17.png) \
+
+on ajoutons le cas de `debit`
+- DebitAccountRequestDto
+```java
+public record DebitAccountRequestDto(String accountId, double ammount, String currency) {
+}
+```
+- `DebitAccountCommand`
+```java
+@Getter @AllArgsConstructor
+public class DebitAccountCommand {
+    @TargetAggregateIdentifier
+    private String id;
+    private double ammount;
+    private String currency;
+}
+```
+- dans `AccountCommandController`
+```java
+@PostMapping("/debit")
+public CompletableFuture<String> debitAccount(@RequestBody DebitAccountRequestDto requestDto) {
+    //dispatching //<String> car targetAgrregate is a sting
+    CompletableFuture<String> response = commandGateway.send(new DebitAccountCommand(
+            requestDto.accountId(),
+            requestDto.ammount(),
+            requestDto.currency()
+    ));
+    return response;
+}
+```
+- `AccountDebitedEvent`
+```java
+@Getter @AllArgsConstructor @Builder @NoArgsConstructor
+public class AccountDebitedEvent {
+    private String accountId;
+    private double ammount;
+    private String currency;
+}
+
+```
+- dans `AccountAggregate`
+```java
+@CommandHandler
+public void handle(DebitAccountCommand command){
+    log.info("##################### DebitAccountCommand recived ############################");
+    if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account " + command.getId() + " is not activated");
+    if(balance<command.getAmmount()) throw  new RuntimeException("balance not enought exception");
+    if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
+    AggregateLifecycle.apply(new AccountDebitedEvent(
+            command.getId(),
+            command.getAmmount(),
+            command.getCurrency()
+    ));
+}
+@EventSourcingHandler
+public void on(AccountDebitedEvent event){
+    log.info("##################### AccountDebitedEvent occured ############################");
+    this.accountId = event.getAccountId();
+    this.balance = this.balance - event.getAmmount();
+}
+```
+on le test
+![debit daccount en swager](screenShots/18.png) \
+![list devents d account](screenShots/19.png) \
+On ajoutons la fonction de changement de letat de compte
+on creer les class
+- UpdateAccountRequestDto
 
 ## 5 - Développements du Côté Lecture
 On creer le package `query` (ecriture)

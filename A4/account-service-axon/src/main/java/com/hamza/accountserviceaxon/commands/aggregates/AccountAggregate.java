@@ -2,9 +2,12 @@ package com.hamza.accountserviceaxon.commands.aggregates;
 
 import com.hamza.accountserviceaxon.commands.commands.AddAccountCommand;
 import com.hamza.accountserviceaxon.commands.commands.CreditAccountCommand;
+import com.hamza.accountserviceaxon.commands.commands.DebitAccountCommand;
 import com.hamza.accountserviceaxon.enums.AccountStatus;
+import com.hamza.accountserviceaxon.events.AccountActivatedEvent;
 import com.hamza.accountserviceaxon.events.AccountCreatedEvent;
 import com.hamza.accountserviceaxon.events.AccountCreditedEvent;
+import com.hamza.accountserviceaxon.events.AccountDebitedEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.axonframework.commandhandling.CommandHandler;
 import org.axonframework.eventsourcing.EventSourcingHandler;
@@ -35,6 +38,10 @@ public class AccountAggregate {
                 AccountStatus.CREATED,
                 command.getCurrency()
         ));
+        AggregateLifecycle.apply(new AccountActivatedEvent(
+                command.getId(),
+                AccountStatus.ACTIVATED
+        ));
     }
 
 
@@ -45,10 +52,16 @@ public class AccountAggregate {
         this.balance = event.getInitialBalance();
         this.status = event.getStatus();
     }
+    @EventSourcingHandler
+    public void on(AccountActivatedEvent event){
+        log.info("##################### AccountActivated occured ############################");
+        this.accountId = event.getAccountId();
+        this.status = event.getStatus();
+    }
     @CommandHandler
     public void handle(CreditAccountCommand command){
         log.info("##################### CreditAccountCommand recived ############################");
-        if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account" + command.getId() + " is not activated");
+        if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account " + command.getId() + " is not activated");
         if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
         //si les regeles metiers sont satisfaite on lance et dipatch les evenment
         AggregateLifecycle.apply(new AccountCreditedEvent(
@@ -63,5 +76,24 @@ public class AccountAggregate {
         log.info("##################### AccountCreditedEvent occured ############################");
         this.accountId = event.getAccountId();
         this.balance = this.balance + event.getAmmount();
+    }
+
+    @CommandHandler
+    public void handle(DebitAccountCommand command){
+        log.info("##################### DebitAccountCommand recived ############################");
+        if(!status.equals(AccountStatus.ACTIVATED)) throw  new RuntimeException("The account " + command.getId() + " is not activated");
+        if(balance<command.getAmmount()) throw  new RuntimeException("balance not enought exception");
+        if(command.getAmmount()<=0) throw  new IllegalArgumentException("Ammount must be positive.");
+        AggregateLifecycle.apply(new AccountDebitedEvent(
+                command.getId(),
+                command.getAmmount(),
+                command.getCurrency()
+        ));
+    }
+    @EventSourcingHandler
+    public void on(AccountDebitedEvent event){
+        log.info("##################### AccountDebitedEvent occured ############################");
+        this.accountId = event.getAccountId();
+        this.balance = this.balance - event.getAmmount();
     }
 }

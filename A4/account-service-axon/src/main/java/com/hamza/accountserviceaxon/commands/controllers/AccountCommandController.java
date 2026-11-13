@@ -2,8 +2,10 @@ package com.hamza.accountserviceaxon.commands.controllers;
 
 import com.hamza.accountserviceaxon.commands.commands.AddAccountCommand;
 import com.hamza.accountserviceaxon.commands.commands.CreditAccountCommand;
+import com.hamza.accountserviceaxon.commands.commands.DebitAccountCommand;
 import com.hamza.accountserviceaxon.commands.dto.AddNewAccountRequestDto;
 import com.hamza.accountserviceaxon.commands.dto.CreditAccountRequestDto;
+import com.hamza.accountserviceaxon.commands.dto.DebitAccountRequestDto;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import org.axonframework.commandhandling.gateway.CommandGateway;
@@ -47,6 +49,17 @@ public class AccountCommandController {
         return response;
     }
 
+    @PostMapping("/debit")
+    public CompletableFuture<String> debitAccount(@RequestBody DebitAccountRequestDto requestDto) {
+        //dispatching //<String> car targetAgrregate is a sting
+        CompletableFuture<String> response = commandGateway.send(new DebitAccountCommand(
+                requestDto.accountId(),
+                requestDto.ammount(),
+                requestDto.currency()
+        ));
+        return response;
+    }
+
     @ExceptionHandler(Exception.class)
     public String exceptionHandler(Exception exception) {
         return exception.getMessage();
@@ -55,5 +68,15 @@ public class AccountCommandController {
     @GetMapping("/events/{accountId}")
     public Stream eventStore(@PathVariable String accountId){
         return eventStore.readEvents(accountId).asStream();
+    }
+
+    @PutMapping("/updateStatus")
+    public CompletableFuture<String> updateStatus(@RequestBody UpdateAccountRequestDto requestDto) {
+        CompletableFuture<String> response = commandGateway.send(new DebitAccountCommand(
+                requestDto.accountId(),
+                requestDto.ammount(),
+                requestDto.currency()
+        ));
+        return response;
     }
 }
